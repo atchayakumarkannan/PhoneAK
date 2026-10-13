@@ -14,6 +14,9 @@ Phone AK is a Kotlin + Jetpack Compose Android dialer with an iOS-inspired adapt
 
 - Adaptive light/dark UI and Recents / Contacts / Keypad tabs
 - Recents from Android call history and contacts search
+- Add new contacts through the Android Contacts editor and save them to the device or a chosen account
+- Edit existing contacts through the Android Contacts editor
+- Google Contacts connection flow that opens Android account/sync settings; Google contacts appear after Android syncs them to the device
 - Default phone app request using Android's dialer role
 - Calls placed with `TelecomManager.placeCall()` instead of handing off to Google's dialer
 - `PhoneAKInCallService` registration and call-state tracking
@@ -26,7 +29,7 @@ Phone AK is a Kotlin + Jetpack Compose Android dialer with an iOS-inspired adapt
 
 - Android's preloaded dialer is always used for emergency calls, even when Phone AK is the default dialer. Android, carrier, and manufacturer behavior can also affect call UI, SIM routing, Bluetooth, and call waiting.
 - For dual-SIM devices, this version delegates account/SIM selection to Android Telecom; a dedicated in-app SIM picker is not yet implemented.
-- Call recording is not implemented. A visible button alone cannot capture both sides of a cellular call; support is restricted by Android version, device firmware, carrier policy, and local law.
+- Call recording remains best-effort microphone recording, not privileged two-way cellular call recording. A visible button alone cannot capture both sides of a cellular call; support is restricted by Android version, device firmware, carrier policy, and local law.
 - Spam identification/blocking, voicemail integration, and contacts backup/restore are not implemented in this build.
 - This source update has not been compiled or tested on a physical phone in this environment. Run the included GitHub Actions workflow and test incoming/outgoing calls on your device before relying on it.
 
@@ -35,3 +38,7 @@ Phone AK is a Kotlin + Jetpack Compose Android dialer with an iOS-inspired adapt
 The in-call screen includes a best-effort microphone recorder. It uses `MediaRecorder.AudioSource.MIC` and saves `.m4a` files under the app-specific Music directory (`PhoneAK/CallRecordings`). It is **not** privileged cellular call recording: Android does not expose a general public API for a normal third-party dialer to capture both sides of a cellular call. Speakerphone may help the microphone pick up the other participant, but this is device-dependent and is not guaranteed. The UI discloses this limitation before recording and does not claim that Google's native call-recording announcement is played.
 
 Xiaomi's official support says call recording availability varies by model, region and carrier, and its supported Google Phone recorder is controlled from Google Phone itself. If Google Phone already records on the device, that confirms the native app's feature is available; it does not expose a public API for Phone AK to start or stop that recording.
+
+## Contacts and Google account behavior
+
+Phone AK uses Android’s shared Contacts Provider. Add/Edit opens the system Contacts editor, so the user can choose a device, SIM (where offered), or Google account as the save destination. The Google Contacts button opens Android account/sync settings or the Google account-add screen. It does not use a separate Google API/OAuth connection: Android syncs Google Contacts into the device contact store, and Phone AK reads the contacts it is permitted to access.

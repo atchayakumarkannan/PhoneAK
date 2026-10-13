@@ -27,6 +27,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Contacts
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Keyboard
@@ -49,7 +53,7 @@ import java.util.Date
 
 private val Green = Color(0xFF1F9D61)
 private data class CallItem(val name: String, val number: String, val date: Long, val type: Int)
-private data class ContactItem(val name: String, val number: String)
+private data class ContactItem(val name: String, val number: String, val contactId: Long, val lookupKey: String)
 
 class MainActivity : ComponentActivity() {
     private var pendingCallNumber: String? = null
@@ -137,8 +141,11 @@ private fun PhoneAKApp(initialNumber: String, openKeypad: Boolean, onRequestDefa
     var query by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var permissionRefresh by remember { mutableIntStateOf(0) }
+    var showGoogleContactsDialog by remember { mutableStateOf(false) }
+    val externalActivityLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { permissionRefresh++ }
     val permissions = buildList {
         add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.WRITE_CONTACTS)
         add(Manifest.permission.READ_CALL_LOG)
         add(Manifest.permission.CALL_PHONE)
         add(Manifest.permission.READ_PHONE_STATE)
@@ -171,8 +178,27 @@ private fun PhoneAKApp(initialNumber: String, openKeypad: Boolean, onRequestDefa
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CONTACTS) == PackageManager.PERMISSION_GRANTED) {
             contacts = runCatching {
                 val out = mutableListOf<ContactItem>()
-                context.contentResolver.query(ContactsContract.CommonDataKinds.Phone.CONTENT_URI, arrayOf(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME, ContactsContract.CommonDataKinds.Phone.NUMBER), null, null, "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC")?.use { c ->
-                    while (c.moveToNext() && out.size < 1000) out.add(ContactItem(c.getString(0).orEmpty(), c.getString(1).orEmpty()))
+                context.contentResolver.query(
+                    ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                    arrayOf(
+                        ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME,
+                        ContactsContract.CommonDataKinds.Phone.NUMBER,
+                        ContactsContract.CommonDataKinds.Phone.CONTACT_ID,
+                        ContactsContract.CommonDataKinds.Phone.LOOKUP_KEY
+                    ), null, null, "${ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME} ASC"
+                )?.use { c ->
+                    val nameIndex = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.DISPLAY_NAME)
+                    val numberIndex = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    val idIndex = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.CONTACT_ID)
+                    val lookupIndex = c.getColumnIndex(ContactsContract.CommonDataKinds.Phone.LOOKUP_KEY)
+                    while (c.moveToNext() && out.size < 1000) {
+                        out.add(ContactItem(
+                            if (nameIndex >= 0) c.getString(nameIndex).orEmpty() else "",
+                            if (numberIndex >= 0) c.getString(numberIndex).orEmpty() else "",
+                            if (idIndex >= 0) c.getLong(idIndex) else -1L,
+                            if (lookupIndex >= 0) c.getString(lookupIndex).orEmpty() else ""
+                        ))
+                    }
                 }
                 out.distinctBy { it.number }
             }.getOrDefault(emptyList())
@@ -214,13 +240,41 @@ private fun PhoneAKApp(initialNumber: String, openKeypad: Boolean, onRequestDefa
                     1 -> {
                         OutlinedTextField(value = query, onValueChange = { query = it }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(18.dp), placeholder = { Text("Search contacts") })
                         Spacer(Modifier.height(8.dp))
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                onClick = {
+                                    val insert = Intent(Intent.ACTION_INSERT, ContactsContract.Contacts.CONTENT_URI)
+                                    runCatching { externalActivityLauncher.launch(insert) }
+                                        .onFailure { Toast.makeText(context, "No contacts app is available to save a contact.", Toast.LENGTH_LONG).show() }
+                                }, modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp)); Text("Add contact", maxLines = 1)
+                            }
+                            OutlinedButton(onClick = { showGoogleContactsDialog = true }, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Sync, null, modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.width(6.dp)); Text("Google Contacts", maxLines = 1)
+                            }
+                        }
+                        Spacer(Modifier.height(8.dp))
                         val filtered = contacts.filter { it.name.contains(query, true) || it.number.contains(query) }
-                        if (filtered.isEmpty()) EmptyState("No contacts to show", "Allow contacts access to see people saved on your phone.")
+                        if (filtered.isEmpty()) EmptyState("No contacts to show", "Add a contact or allow access to contacts synced on your phone.")
                         else LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             items(filtered) { contact ->
-                                Row(Modifier.fillMaxWidth().clickable { number = contact.number; tab = 2 }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Text(contact.name.firstOrNull()?.uppercase() ?: "?", fontWeight = FontWeight.SemiBold) }
-                                    Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(contact.name, fontWeight = FontWeight.Medium); Text(contact.number, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
+                                Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant).clickable { number = contact.number; tab = 2 }, contentAlignment = Alignment.Center) { Text(contact.name.firstOrNull()?.uppercase() ?: "?", fontWeight = FontWeight.SemiBold) }
+                                    Column(Modifier.weight(1f).padding(start = 12.dp).clickable { number = contact.number; tab = 2 }) {
+                                        Text(contact.name.ifBlank { "Unnamed contact" }, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(contact.number, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
+                                    IconButton(onClick = {
+                                        val lookupUri = if (contact.contactId >= 0 && contact.lookupKey.isNotBlank()) ContactsContract.Contacts.getLookupUri(contact.contactId, contact.lookupKey) else null
+                                        if (lookupUri != null) {
+                                            val edit = Intent(Intent.ACTION_EDIT).setDataAndType(lookupUri, ContactsContract.Contacts.CONTENT_ITEM_TYPE)
+                                            runCatching { externalActivityLauncher.launch(edit) }
+                                                .onFailure { Toast.makeText(context, "Could not open contact editor.", Toast.LENGTH_LONG).show() }
+                                        } else Toast.makeText(context, "This contact cannot be edited from Phone AK.", Toast.LENGTH_LONG).show()
+                                    }) { Icon(Icons.Default.Edit, "Edit ${contact.name}") }
                                     IconButton(onClick = { onPlaceCall(contact.number) }) { Icon(Icons.Default.Call, "Call ${contact.name}", tint = Green) }
                                 }
                             }
@@ -249,6 +303,27 @@ private fun PhoneAKApp(initialNumber: String, openKeypad: Boolean, onRequestDefa
                     }
                 }
             }
+            if (showGoogleContactsDialog) AlertDialog(
+                onDismissRequest = { showGoogleContactsDialog = false },
+                title = { Text("Google Contacts") },
+                text = { Text("Phone AK reads contacts from your Android contacts list. To connect Google Contacts, add your Google account to this phone and turn on Contacts sync. Contacts synced by Android will then appear here after refreshing.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showGoogleContactsDialog = false
+                        val syncIntent = Intent(Settings.ACTION_SYNC_SETTINGS)
+                        runCatching { externalActivityLauncher.launch(syncIntent) }
+                            .onFailure { Toast.makeText(context, "Open Settings > Accounts > Google > Account sync.", Toast.LENGTH_LONG).show() }
+                    }) { Text("Open sync settings") }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        showGoogleContactsDialog = false
+                        val addAccount = Intent(Settings.ACTION_ADD_ACCOUNT).putExtra(Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+                        runCatching { externalActivityLauncher.launch(addAccount) }
+                            .onFailure { Toast.makeText(context, "Open Settings and add a Google account.", Toast.LENGTH_LONG).show() }
+                    }) { Text("Add Google account") }
+                }
+            )
             if (showSettings) AlertDialog(onDismissRequest = { showSettings = false }, title = { Text("Phone AK") }, text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) { Text("Make Phone AK your default phone app to handle calls."); Text("Manual call recording depends on your phone and Android version; this starter build does not claim to record call audio.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) } }, confirmButton = { TextButton(onClick = { showSettings = false; onRequestDefault() }) { Text("Set default dialer") } }, dismissButton = { TextButton(onClick = { showSettings = false; permissionLauncher.launch(permissions) }) { Text("Grant permissions") } })
         }
     }
