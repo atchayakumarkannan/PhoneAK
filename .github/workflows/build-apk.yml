@@ -6,11 +6,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - 'app/**'
-      - '.github/workflows/build-apk.yml'
-      - '*.gradle.kts'
-      - 'gradle.properties'
 
 permissions:
   contents: read
@@ -32,12 +27,16 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          accept-android-sdk-licenses: true
 
-      - name: Install Gradle 8.9
+      - name: Accept remaining SDK licenses
+        run: yes | sdkmanager --licenses
+
+      - name: Install Gradle
         run: |
           curl -fL https://services.gradle.org/distributions/gradle-8.9-bin.zip -o /tmp/gradle.zip
           unzip -q /tmp/gradle.zip -d /tmp
-          /tmp/gradle-8.9/bin/gradle --version
 
       - name: Build debug APK
         run: |
