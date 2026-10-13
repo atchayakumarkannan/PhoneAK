@@ -1,6 +1,7 @@
 package com.phoneak.dialer
 
-import android.app.Activity
+import android.Manifest
+import android.content.pm.PackageManager
 import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
@@ -8,6 +9,8 @@ import android.os.Looper
 import android.telecom.Call
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -31,6 +34,7 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.IconButtonDefaults
@@ -41,6 +45,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +58,7 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.core.content.ContextCompat
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -110,10 +116,22 @@ private fun PhoneAKCallScreen(initialNumber: String, onClose: () -> Unit) {
     val state = CallRepository.callState
     val number = CallRepository.phoneNumber.ifBlank { initialNumber.ifBlank { "Unknown number" } }
     var showKeypad by remember { mutableStateOf(false) }
+    var showRecordingDisclosure by remember { mutableStateOf(false) }
+    val recorder = remember(context) { CallAudioRecorder(context.applicationContext) }
+    val microphonePermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) recorder.start() else recorder.statusMessage = "Microphone permission is required to record."
+    }
+
+    DisposableEffect(recorder) {
+        onDispose { recorder.stop() }
+    }
     var elapsedSeconds by remember { mutableStateOf(0) }
     val startedAt = remember(call) { System.currentTimeMillis() }
 
     LaunchedEffect(call, state) {
+        if (state == Call.STATE_DISCONNECTED || state == Call.STATE_DISCONNECTING) {
+            recorder.stop()
+        }
         if (state == Call.STATE_ACTIVE) {
             while (CallRepository.callState == Call.STATE_ACTIVE || CallRepository.callState == Call.STATE_HOLDING) {
                 kotlinx.coroutines.delay(1000L)
@@ -167,6 +185,30 @@ private fun PhoneAKCallScreen(initialNumber: String, onClose: () -> Unit) {
                         SmallCallButton(label = if (CallRepository.audioRoute == android.telecom.CallAudioState.ROUTE_SPEAKER) "Speaker on" else "Speaker", active = CallRepository.audioRoute == android.telecom.CallAudioState.ROUTE_SPEAKER, onClick = { CallRepository.toggleSpeaker() }, icon = { Icon(Icons.Default.VolumeUp, null) })
                         SmallCallButton(label = if (showKeypad) "Hide keypad" else "Keypad", active = showKeypad, onClick = { showKeypad = !showKeypad }, icon = { Icon(Icons.Default.Dialpad, null) })
                     }
+                    Spacer(Modifier.height(14.dp))
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                        SmallCallButton(
+                            label = if (recorder.isRecording) "Stop recording" else "Record",
+                            active = recorder.isRecording,
+                            onClick = {
+                                if (recorder.isRecording) {
+                                    recorder.stop()
+                                } else {
+                                    showRecordingDisclosure = true
+                                }
+                            },
+                            icon = { Text(if (recorder.isRecording) "■" else "●", color = if (recorder.isRecording) Color.White else Color(0xFFE34C4C), fontSize = 22.sp) }
+                        )
+                    }
+                    if (recorder.isRecording || recorder.statusMessage.isNotBlank()) {
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            recorder.statusMessage,
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                     Spacer(Modifier.height(20.dp))
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                         SmallCallButton(label = if (state == Call.STATE_HOLDING) "Resume" else "Hold", active = state == Call.STATE_HOLDING, onClick = { CallRepository.toggleHold() }, icon = { Icon(Icons.Default.Pause, null) })
@@ -189,6 +231,31 @@ private fun PhoneAKCallScreen(initialNumber: String, onClose: () -> Unit) {
                 Spacer(Modifier.height(26.dp))
             }
         }
+    }
+
+    if (showRecordingDisclosure) {
+        AlertDialog(
+            onDismissRequest = { showRecordingDisclosure = false },
+            title = { Text("Phone AK microphone recording") },
+            text = {
+                Text(
+                    "This records sound from the phone microphone, not the protected cellular call-audio stream. On Android 14 it may fail or capture only your side. Speakerphone may help capture the other person, but this is not guaranteed. Phone AK does not play Google's recording announcement, so tell the other participant and follow local law before recording. Files are stored privately in Phone AK."
+                )
+            },
+            confirmButton = {
+                androidx.compose.material3.TextButton(onClick = {
+                    showRecordingDisclosure = false
+                    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
+                        recorder.start()
+                    } else {
+                        microphonePermission.launch(Manifest.permission.RECORD_AUDIO)
+                    }
+                }) { Text("Continue") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { showRecordingDisclosure = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 

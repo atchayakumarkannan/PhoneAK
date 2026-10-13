@@ -29,3 +29,9 @@ Phone AK is a Kotlin + Jetpack Compose Android dialer with an iOS-inspired adapt
 - Call recording is not implemented. A visible button alone cannot capture both sides of a cellular call; support is restricted by Android version, device firmware, carrier policy, and local law.
 - Spam identification/blocking, voicemail integration, and contacts backup/restore are not implemented in this build.
 - This source update has not been compiled or tested on a physical phone in this environment. Run the included GitHub Actions workflow and test incoming/outgoing calls on your device before relying on it.
+
+## Call recording note (Android 14 / Redmi Note 12 5G)
+
+The in-call screen includes a best-effort microphone recorder. It uses `MediaRecorder.AudioSource.MIC` and saves `.m4a` files under the app-specific Music directory (`PhoneAK/CallRecordings`). It is **not** privileged cellular call recording: Android does not expose a general public API for a normal third-party dialer to capture both sides of a cellular call. Speakerphone may help the microphone pick up the other participant, but this is device-dependent and is not guaranteed. The UI discloses this limitation before recording and does not claim that Google's native call-recording announcement is played.
+
+Xiaomi's official support says call recording availability varies by model, region and carrier, and its supported Google Phone recorder is controlled from Google Phone itself. If Google Phone already records on the device, that confirms the native app's feature is available; it does not expose a public API for Phone AK to start or stop that recording.
