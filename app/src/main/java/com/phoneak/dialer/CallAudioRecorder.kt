@@ -22,7 +22,6 @@ class CallAudioRecorder(private val context: Context) {
     var isRecording by mutableStateOf(false)
         private set
     var statusMessage by mutableStateOf("")
-        private set
     var lastSavedPath by mutableStateOf("")
         private set
 
