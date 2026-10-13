@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -197,7 +198,7 @@ private fun BigCallButton(label: String, color: Color, icon: @Composable () -> U
         androidx.compose.material3.FilledIconButton(
             onClick = onClick,
             modifier = Modifier.size(72.dp),
-            colors = ButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White)
+            colors = IconButtonDefaults.filledIconButtonColors(containerColor = color, contentColor = Color.White)
         ) { icon() }
         Text(label, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
@@ -209,7 +210,7 @@ private fun SmallCallButton(label: String, active: Boolean, onClick: () -> Unit,
         androidx.compose.material3.FilledIconButton(
             onClick = onClick,
             modifier = Modifier.size(58.dp),
-            colors = ButtonDefaults.filledIconButtonColors(
+            colors = IconButtonDefaults.filledIconButtonColors(
                 containerColor = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
                 contentColor = if (active) Color.White else MaterialTheme.colorScheme.onSurface
             )
