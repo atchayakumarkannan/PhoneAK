@@ -11,6 +11,8 @@ import android.os.Bundle
 import android.provider.CallLog
 import android.provider.ContactsContract
 import android.provider.Settings
+import android.telecom.TelecomManager
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -50,9 +52,35 @@ private data class CallItem(val name: String, val number: String, val date: Long
 private data class ContactItem(val name: String, val number: String)
 
 class MainActivity : ComponentActivity() {
+    private var pendingCallNumber: String? = null
+    private val callPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val pending = pendingCallNumber
+        pendingCallNumber = null
+        if (granted && !pending.isNullOrBlank()) placeCallFromApp(pending)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { PhoneAKApp(onRequestDefault = { requestDefaultDialer() }) }
+        renderPhoneAK()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        renderPhoneAK()
+    }
+
+    private fun renderPhoneAK() {
+        val initialNumber = intent?.data?.takeIf { it.scheme == "tel" }?.schemeSpecificPart.orEmpty()
+        val openKeypad = intent?.action == Intent.ACTION_DIAL
+        setContent {
+            PhoneAKApp(
+                initialNumber = initialNumber,
+                openKeypad = openKeypad,
+                onRequestDefault = { requestDefaultDialer() },
+                onPlaceCall = { number -> placeCallFromApp(number) }
+            )
+        }
     }
 
     private fun requestDefaultDialer() {
@@ -62,26 +90,72 @@ class MainActivity : ComponentActivity() {
                 startActivityForResult(rm.createRequestRoleIntent(RoleManager.ROLE_DIALER), 100)
             }
         } else {
-            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            val changeDefault = Intent(TelecomManager.ACTION_CHANGE_DEFAULT_DIALER).putExtra(
+                TelecomManager.EXTRA_CHANGE_DEFAULT_DIALER_PACKAGE_NAME, packageName
+            )
+            runCatching { startActivity(changeDefault) }.onFailure {
+                startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            }
+        }
+    }
+
+    private fun isPhoneAKDefault(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            getSystemService(RoleManager::class.java).isRoleHeld(RoleManager.ROLE_DIALER)
+        } else {
+            (getSystemService(TELECOM_SERVICE) as TelecomManager).defaultDialerPackage == packageName
+        }
+    }
+
+    private fun placeCallFromApp(number: String) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CALL_PHONE) != PackageManager.PERMISSION_GRANTED) {
+            pendingCallNumber = number
+            callPermissionLauncher.launch(Manifest.permission.CALL_PHONE)
+            return
+        }
+        if (!isPhoneAKDefault()) {
+            Toast.makeText(this, "Set Phone AK as your default phone app first.", Toast.LENGTH_LONG).show()
+            requestDefaultDialer()
+            return
+        }
+        if (!placePhoneAKCall(this, number)) {
+            Toast.makeText(this, "Could not place the call. Check SIM/network and try again.", Toast.LENGTH_LONG).show()
         }
     }
 }
 
 @Composable
-private fun PhoneAKApp(onRequestDefault: () -> Unit) {
+private fun PhoneAKApp(initialNumber: String, openKeypad: Boolean, onRequestDefault: () -> Unit, onPlaceCall: (String) -> Unit) {
     val context = LocalContext.current
     val dark = isSystemInDarkTheme()
     val scheme = if (dark) darkColorScheme(primary = Color(0xFF55D99A), background = Color(0xFF101110), surface = Color(0xFF191B19))
                  else lightColorScheme(primary = Green, background = Color(0xFFF7F7F8), surface = Color.White)
     var tab by remember { mutableStateOf(0) }
-    var number by remember { mutableStateOf("") }
+    var number by remember { mutableStateOf(initialNumber) }
     var calls by remember { mutableStateOf<List<CallItem>>(emptyList()) }
     var contacts by remember { mutableStateOf<List<ContactItem>>(emptyList()) }
     var query by remember { mutableStateOf("") }
     var showSettings by remember { mutableStateOf(false) }
     var permissionRefresh by remember { mutableIntStateOf(0) }
-    val permissions = arrayOf(Manifest.permission.READ_CONTACTS, Manifest.permission.READ_CALL_LOG, Manifest.permission.CALL_PHONE, Manifest.permission.READ_PHONE_STATE)
+    val permissions = buildList {
+        add(Manifest.permission.READ_CONTACTS)
+        add(Manifest.permission.READ_CALL_LOG)
+        add(Manifest.permission.CALL_PHONE)
+        add(Manifest.permission.READ_PHONE_STATE)
+        if (Build.VERSION.SDK_INT >= 33) add(Manifest.permission.POST_NOTIFICATIONS)
+    }.toTypedArray()
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissionRefresh++ }
+
+    LaunchedEffect(initialNumber, openKeypad) {
+        if (initialNumber.isNotBlank()) number = initialNumber
+        if (initialNumber.isNotBlank() || openKeypad) tab = 2
+    }
+
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+        }
+    }
 
     LaunchedEffect(permissionRefresh) {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.READ_CALL_LOG) == PackageManager.PERMISSION_GRANTED) {
@@ -132,7 +206,7 @@ private fun PhoneAKApp(onRequestDefault: () -> Unit) {
                                         Text(call.name.ifBlank { call.number.ifBlank { "Unknown caller" } }, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text("${callType(call.type)} · ${DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(call.date))}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp)
                                     }
-                                    IconButton(onClick = { dial(context, call.number) }) { Icon(Icons.Default.Call, "Call ${call.name}", tint = Green) }
+                                    IconButton(onClick = { onPlaceCall(call.number) }) { Icon(Icons.Default.Call, "Call ${call.name}", tint = Green) }
                                 }
                             }
                         }
@@ -147,7 +221,7 @@ private fun PhoneAKApp(onRequestDefault: () -> Unit) {
                                 Row(Modifier.fillMaxWidth().clickable { number = contact.number; tab = 2 }.padding(vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                                     Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) { Text(contact.name.firstOrNull()?.uppercase() ?: "?", fontWeight = FontWeight.SemiBold) }
                                     Column(Modifier.weight(1f).padding(start = 12.dp)) { Text(contact.name, fontWeight = FontWeight.Medium); Text(contact.number, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 13.sp) }
-                                    IconButton(onClick = { dial(context, contact.number) }) { Icon(Icons.Default.Call, "Call ${contact.name}", tint = Green) }
+                                    IconButton(onClick = { onPlaceCall(contact.number) }) { Icon(Icons.Default.Call, "Call ${contact.name}", tint = Green) }
                                 }
                             }
                         }
@@ -168,7 +242,7 @@ private fun PhoneAKApp(onRequestDefault: () -> Unit) {
                         }
                         Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
                             Spacer(Modifier.width(56.dp))
-                            Box(Modifier.size(64.dp).clip(CircleShape).background(Green).clickable { if (number.isNotBlank()) dial(context, number) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Call, "Call", tint = Color.White, modifier = Modifier.size(28.dp)) }
+                            Box(Modifier.size(64.dp).clip(CircleShape).background(Green).clickable { if (number.isNotBlank()) onPlaceCall(number) }, contentAlignment = Alignment.Center) { Icon(Icons.Default.Call, "Call", tint = Color.White, modifier = Modifier.size(28.dp)) }
                             Box(Modifier.width(56.dp), contentAlignment = Alignment.Center) { if (number.isNotEmpty()) Text("⌫", fontSize = 24.sp, modifier = Modifier.clickable { number = number.dropLast(1) }.padding(8.dp)) }
                         }
                         Text("Calls use your phone's supported SIM and calling settings.", modifier = Modifier.fillMaxWidth().padding(top = 14.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -188,4 +262,3 @@ private fun PhoneAKApp(onRequestDefault: () -> Unit) {
     }
 }
 private fun callType(type: Int) = when (type) { CallLog.Calls.INCOMING_TYPE -> "Incoming"; CallLog.Calls.OUTGOING_TYPE -> "Outgoing"; CallLog.Calls.MISSED_TYPE -> "Missed"; CallLog.Calls.REJECTED_TYPE -> "Rejected"; else -> "Call" }
-private fun dial(context: android.content.Context, number: String) { runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.fromParts("tel", number, null))) } }

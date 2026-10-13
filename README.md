@@ -1,27 +1,31 @@
-# Phone AK — Android dialer starter
+# Phone AK — native Android dialer
 
-A native Kotlin + Jetpack Compose starter for the requested iOS-inspired Android dialer: adaptive system theme, Recents / Contacts / Keypad tabs, Recents as the initial screen, and a GitHub Actions APK build.
+Phone AK is a Kotlin + Jetpack Compose Android dialer with an iOS-inspired adaptive light/dark interface, Recents / Contacts / Keypad tabs, a default-dialer role request, Android Telecom call placement, and a custom `InCallService` with its own incoming and active-call UI.
 
-## Build APK with GitHub Actions
+## Build the APK with GitHub Actions
 
-1. Create a GitHub repository (for example `phone-ak`).
-2. Upload the **contents** of this folder to the repository root (so `settings.gradle.kts`, `build.gradle.kts`, `app/`, and `.github/` are at the root).
-3. Push to `main`/`master`, or open **Actions → Build Phone AK APK → Run workflow**.
-4. Open the completed workflow run and download the `Phone-AK-debug-apk` artifact.
-5. Unzip the artifact and install `app-debug.apk` on your Android phone. You may need to allow installs from the browser/file manager you used.
-6. Open Phone AK and choose **Set default dialer** in the app settings. Grant contacts and call-log permissions when prompted by Android.
+1. Upload the contents of this folder to the root of your GitHub repository (including `app/`, `build.gradle.kts`, `settings.gradle.kts`, and `.github/`).
+2. Open **Actions → Build Phone AK APK → Run workflow** (or push a commit to `main`/`master`).
+3. When the run succeeds, open it and download the `Phone-AK-debug-apk` artifact.
+4. Install `app-debug.apk` on an Android phone.
+5. Open Phone AK, grant phone/notification/contacts permissions, and choose **Set default dialer** in the app settings. Android must designate Phone AK as the default phone app before it can own the in-call UI.
 
-## Current starter scope
+## Implemented in this version
 
-- Adaptive light/dark Compose UI
-- Recents loaded from Android call history when permission is granted
-- Contacts list and search when contacts permission is granted
-- Keypad and ACTION_DIAL handoff
-- Android default dialer role request
-- GitHub Actions debug APK artifact
+- Adaptive light/dark UI and Recents / Contacts / Keypad tabs
+- Recents from Android call history and contacts search
+- Default phone app request using Android's dialer role
+- Calls placed with `TelecomManager.placeCall()` instead of handing off to Google's dialer
+- `PhoneAKInCallService` registration and call-state tracking
+- Phone AK incoming-call screen notification/full-screen intent with Answer and Decline actions
+- Built-in active-call screen with answer/reject, hang up, mute, speaker, hold/resume, DTMF keypad, and add-call entry point
+- Ongoing-call notification to return to the Phone AK call screen
+- GitHub Actions APK artifact build
 
-## Important limitations
+## Important platform limits
 
-This is a starter implementation, not a fully featured production dialer yet. It currently launches the system dialer for a call rather than providing a complete in-call UI. Manual call recording, dual-SIM selection, voicemail integration, spam identification/blocking, and contacts export/restore still need device-tested implementations. Android restricts call-audio capture, and a visible recording button alone cannot guarantee call recording. Do not rely on this build to record calls.
-
-Before public distribution, implement the full `InCallService`/Telecom integration, test default-dialer behavior on target devices, implement backup/export and blocking flows, and review permissions and Play policy requirements.
+- Android's preloaded dialer is always used for emergency calls, even when Phone AK is the default dialer. Android, carrier, and manufacturer behavior can also affect call UI, SIM routing, Bluetooth, and call waiting.
+- For dual-SIM devices, this version delegates account/SIM selection to Android Telecom; a dedicated in-app SIM picker is not yet implemented.
+- Call recording is not implemented. A visible button alone cannot capture both sides of a cellular call; support is restricted by Android version, device firmware, carrier policy, and local law.
+- Spam identification/blocking, voicemail integration, and contacts backup/restore are not implemented in this build.
+- This source update has not been compiled or tested on a physical phone in this environment. Run the included GitHub Actions workflow and test incoming/outgoing calls on your device before relying on it.
